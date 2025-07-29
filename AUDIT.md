@@ -124,21 +124,7 @@ func (s *HandshakeState) ReadMessage(out, message []byte) ([]byte, *CipherState,
 
 ## Medium Findings
 
-### Finding #4: Potential Information Disclosure in Error Messages
-**Severity**: MEDIUM  
-**Component**: Various error handling throughout the codebase  
-**Description**: Some error messages might leak information about internal state or the nature of failures that could assist attackers in developing targeted attacks.  
-**Impact**: Information leakage could assist attackers, though impact is limited.  
-**Recommendation**: 
-```go
-// Use generic error messages for cryptographic failures
-var ErrDecryptionFailed = errors.New("noise: decryption failed")
-var ErrHandshakeFailed = errors.New("noise: handshake failed")
-
-// Log detailed errors only in debug mode, return generic errors to callers
-```
-
-### Finding #5: Missing Input Validation in ReadMessage
+### Finding #4: Missing Input Validation in ReadMessage
 **Severity**: MEDIUM  
 **Component**: `state.go:ReadMessage()`  
 **Description**: While `WriteMessage` checks payload length against `MaxMsgLen`, `ReadMessage` doesn't validate incoming message length before processing.  
@@ -159,7 +145,7 @@ func (s *HandshakeState) ReadMessage(out, message []byte) ([]byte, *CipherState,
 
 ## Low Findings
 
-### Finding #6: Incomplete Memory Zeroing Coverage
+### Finding #5: Incomplete Memory Zeroing Coverage
 **Severity**: LOW  
 **Component**: Various temporary variables throughout the codebase  
 **Description**: While the implementation includes `secureZero()` function and uses it in many places, some temporary variables containing sensitive data may not be consistently zeroed.  
@@ -200,9 +186,9 @@ The implementation demonstrates **excellent compliance** with the NOISE protocol
 ## Recommendations Summary
 
 1. ✅ **CRITICAL RESOLVED**: Added documentation warnings to prevent test RNG usage in production
-2. **HIGH**: Implement mutex protection for CipherState nonce management
-3. **HIGH**: Add mutex protection for HandshakeState operations
-4. **MEDIUM**: Implement generic error messages for cryptographic failures
-5. **MEDIUM**: Add message length validation in ReadMessage
+2. ✅ **HIGH RESOLVED**: Added mutex protection for CipherState nonce management
+3. ✅ **HIGH RESOLVED**: Added mutex protection for HandshakeState operations
+4. **MEDIUM**: Add message length validation in ReadMessage
+5. **LOW**: Implement consistent secure zeroing for all temporary variables
 
 This implementation provides a solid foundation for NOISE protocol usage but requires addressing the concurrency and validation issues before production deployment in multi-threaded environments.

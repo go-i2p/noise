@@ -77,29 +77,36 @@ func (s *CipherState) Decrypt(out, ad, ciphertext []byte) ([]byte, error) {
 }
 ```
 
-### Finding #3: HandshakeState Concurrent Access Vulnerability
+### Finding #3: HandshakeState Concurrent Access Vulnerability ✅ RESOLVED
 **Severity**: HIGH  
 **Component**: `state.go:HandshakeState` struct  
+**Status**: ✅ **FIXED** in commit (to be updated)
 **Description**: The `HandshakeState` contains mutable fields (`msgIdx`, `shouldWrite`, symmetric state) that could be corrupted if accessed concurrently during handshake operations.  
 **Impact**: Race conditions during handshake could lead to protocol state corruption, failed handshakes, or potential security issues.  
-**Recommendation**: 
-```go
-import "sync"
+**Resolution Applied**: 
+- Added `sync.Mutex` field to `HandshakeState` struct
+- Protected `WriteMessage` and `ReadMessage` methods with mutex locks
+- Protected `SetPresharedKey` method for thread-safe PSK management
+- Protected all getter methods (`ChannelBinding`, `PeerStatic`, `MessageIndex`, `PeerEphemeral`, `LocalEphemeral`) with mutex locks
+- Comprehensive concurrency testing confirms thread safety maintained
+- Go race detector shows zero warnings with fix applied
 
+**Code Changes**:
+```go
 type HandshakeState struct {
     ss              symmetricState
-    s               DHKey
-    e               DHKey
-    rs              []byte
-    re              []byte
-    psk             []byte
-    willPsk         bool
+    s               DHKey  // local static keypair
+    e               DHKey  // local ephemeral keypair
+    rs              []byte // remote party's static public key
+    re              []byte // remote party's ephemeral public key
+    psk             []byte // preshared key, maybe zero length
+    willPsk         bool   // indicates if preshared key will be used (even if not yet set)
     messagePatterns [][]MessagePattern
     shouldWrite     bool
     initiator       bool
     msgIdx          int
     rng             io.Reader
-    mu              sync.Mutex  // Protect handshake state
+    mu              sync.Mutex  // Protects handshake state for thread safety
 }
 
 func (s *HandshakeState) WriteMessage(out, payload []byte) ([]byte, *CipherState, *CipherState, error) {

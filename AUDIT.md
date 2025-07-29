@@ -20,22 +20,27 @@ This NOISE protocol implementation demonstrates good overall security architectu
 
 ## High Findings
 
-### Finding #2: Missing Concurrency Protection for Nonce Management
-**Severity**: HIGH  
-**Component**: `cipher_state.go:CipherState.Encrypt()` and `Decrypt()`  
-**Description**: The nonce counter `n` in `CipherState` is not protected against concurrent access. In multi-goroutine environments, race conditions could lead to nonce reuse or corruption.  
-**Impact**: Nonce reuse breaks the security guarantees of AEAD ciphers, potentially allowing attackers to recover plaintext or forge messages.  
-**Recommendation**: 
-```go
-import "sync"
+### Finding #2: Missing Concurrency Protection for Nonce Management ✅ RESOLVED
+**Severity**: CRITICAL  
+**Component**: `cipher_state.go:CipherState` struct  
+**Status**: ✅ **FIXED** in commit f72de7b
+**Description**: The `CipherState` struct's nonce counter (`n`) lacks synchronization mechanisms for concurrent access. Multiple goroutines calling `Encrypt()` or `Decrypt()` simultaneously could cause race conditions leading to nonce reuse.  
+**Impact**: Nonce reuse breaks AEAD security guarantees, potentially allowing message replay attacks or plaintext recovery.  
+**Resolution Applied**: 
+- Added `sync.Mutex` field to `CipherState` struct
+- Protected all nonce-accessing methods (`Encrypt`, `Decrypt`, `Nonce`, `SetNonce`, `Cipher`, `UnsafeKey`, `Rekey`) with mutex locks
+- Comprehensive race condition testing confirms vulnerability eliminated
+- Go race detector shows zero warnings with fix applied
 
+**Code Changes**:
+```go
 type CipherState struct {
-    cs      CipherSuite
-    c       Cipher
-    k       [32]byte
-    n       uint64
+    cs CipherSuite
+    c  Cipher
+    k  [32]byte
+    n  uint64
     invalid bool
-    mu      sync.Mutex  // Add mutex for nonce protection
+    mu      sync.Mutex // Protects nonce management for thread safety
 }
 
 func (s *CipherState) Encrypt(out, ad, plaintext []byte) ([]byte, error) {

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 )
 
 // A HandshakeState tracks the state of a Noise handshake. It may be discarded
@@ -28,6 +29,7 @@ type HandshakeState struct {
 	initiator       bool
 	msgIdx          int
 	rng             io.Reader
+	mu              sync.Mutex // Protects handshake state for thread safety
 }
 
 // NewHandshakeState starts a new handshake using the provided configuration.
@@ -108,6 +110,9 @@ func NewHandshakeState(c Config) (*HandshakeState, error) {
 // peer. It is an error to call this method out of sync with the handshake
 // pattern.
 func (s *HandshakeState) WriteMessage(out, payload []byte) ([]byte, *CipherState, *CipherState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if !s.shouldWrite {
 		return nil, nil, nil, errors.New("noise: unexpected call to WriteMessage should be ReadMessage")
 	}
@@ -215,6 +220,9 @@ func (s *HandshakeState) WriteMessage(out, payload []byte) ([]byte, *CipherState
 }
 
 func (s *HandshakeState) SetPresharedKey(psk []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if len(psk) != 32 {
 		return errors.New("noise: specification mandates 256-bit preshared keys")
 	}
@@ -233,6 +241,9 @@ func (s *HandshakeState) SetPresharedKey(psk []byte) error {
 // the other is used for decryption of messages from the remote peer. It is an
 // error to call this method out of sync with the handshake pattern.
 func (s *HandshakeState) ReadMessage(out, message []byte) ([]byte, *CipherState, *CipherState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.shouldWrite {
 		return nil, nil, nil, errors.New("noise: unexpected call to ReadMessage should be WriteMessage")
 	}
@@ -359,6 +370,8 @@ func (s *HandshakeState) ReadMessage(out, message []byte) ([]byte, *CipherState,
 // be used as a channel binding. It is an error to call this method before the
 // handshake is complete.
 func (s *HandshakeState) ChannelBinding() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.ss.h
 }
 
@@ -366,11 +379,15 @@ func (s *HandshakeState) ChannelBinding() []byte {
 // a handshake. It is an error to call this method if a handshake message
 // containing a static key has not been read.
 func (s *HandshakeState) PeerStatic() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.rs
 }
 
 // MessageIndex returns the current handshake message id
 func (s *HandshakeState) MessageIndex() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.msgIdx
 }
 
@@ -378,11 +395,15 @@ func (s *HandshakeState) MessageIndex() int {
 // a handshake. It is an error to call this method if a handshake message
 // containing a static key has not been read.
 func (s *HandshakeState) PeerEphemeral() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.re
 }
 
 // LocalEphemeral returns the local ephemeral key pair generated during
 // a handshake.
 func (s *HandshakeState) LocalEphemeral() DHKey {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.e
 }

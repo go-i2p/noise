@@ -116,6 +116,9 @@ func (s *CipherState) Rekey() {
 	out = s.c.Encrypt(out, math.MaxUint64, []byte{}, zeros[:])
 	copy(s.k[:], out[:32])
 	s.c = s.cs.Cipher(s.k)
+	
+	// Securely zero intermediate data
+	secureZero(out)
 }
 
 type symmetricState struct {
@@ -148,6 +151,10 @@ func (s *symmetricState) MixKey(dhOutput []byte) {
 	s.ck, hk, _ = hkdf(s.cs.Hash, 2, s.ck[:0], s.k[:0], nil, s.ck, dhOutput)
 	copy(s.k[:], hk)
 	s.c = s.cs.Cipher(s.k)
+	
+	// Securely zero the intermediate key material
+	secureZero(hk)
+	// Note: dhOutput is zeroed by the caller since they own the memory
 }
 
 func (s *symmetricState) MixHash(data []byte) {
@@ -166,6 +173,10 @@ func (s *symmetricState) MixKeyAndHash(data []byte) {
 	s.c = s.cs.Cipher(s.k)
 	s.n = 0
 	s.hasK = true
+	
+	// Securely zero intermediate key material
+	secureZero(hk)
+	secureZero(temp)
 }
 
 func (s *symmetricState) EncryptAndHash(out, plaintext []byte) ([]byte, error) {
@@ -201,6 +212,13 @@ func (s *symmetricState) Split() (*CipherState, *CipherState) {
 	copy(s2.k[:], hk2)
 	s1.c = s.cs.Cipher(s1.k)
 	s2.c = s.cs.Cipher(s2.k)
+	
+	// Securely zero the intermediate key material
+	secureZero(hk1)
+	secureZero(hk2)
+	// Zero the chaining key as it's no longer needed after split
+	secureZero(s.ck)
+	
 	return s1, s2
 }
 
@@ -427,6 +445,8 @@ func (s *HandshakeState) WriteMessage(out, payload []byte) ([]byte, *CipherState
 				return nil, nil, nil, err
 			}
 			s.ss.MixKey(dh)
+			// Securely zero the DH output after mixing
+			secureZero(dh)
 		case MessagePatternDHES:
 			if s.initiator {
 				dh, err := s.ss.cs.DH(s.e.Private, s.rs)
@@ -434,12 +454,16 @@ func (s *HandshakeState) WriteMessage(out, payload []byte) ([]byte, *CipherState
 					return nil, nil, nil, err
 				}
 				s.ss.MixKey(dh)
+				// Securely zero the DH output after mixing
+				secureZero(dh)
 			} else {
 				dh, err := s.ss.cs.DH(s.s.Private, s.re)
 				if err != nil {
 					return nil, nil, nil, err
 				}
 				s.ss.MixKey(dh)
+				// Securely zero the DH output after mixing
+				secureZero(dh)
 			}
 		case MessagePatternDHSE:
 			if s.initiator {
@@ -448,12 +472,16 @@ func (s *HandshakeState) WriteMessage(out, payload []byte) ([]byte, *CipherState
 					return nil, nil, nil, err
 				}
 				s.ss.MixKey(dh)
+				// Securely zero the DH output after mixing
+				secureZero(dh)
 			} else {
 				dh, err := s.ss.cs.DH(s.e.Private, s.rs)
 				if err != nil {
 					return nil, nil, nil, err
 				}
 				s.ss.MixKey(dh)
+				// Securely zero the DH output after mixing
+				secureZero(dh)
 			}
 		case MessagePatternDHSS:
 			dh, err := s.ss.cs.DH(s.s.Private, s.rs)
@@ -461,6 +489,8 @@ func (s *HandshakeState) WriteMessage(out, payload []byte) ([]byte, *CipherState
 				return nil, nil, nil, err
 			}
 			s.ss.MixKey(dh)
+			// Securely zero the DH output after mixing
+			secureZero(dh)
 		case MessagePatternPSK:
 			if len(s.psk) == 0 {
 				return nil, nil, nil, errors.New("noise: cannot send psk message without psk set")
@@ -489,6 +519,10 @@ var ErrShortMessage = errors.New("noise: message is too short")
 func (s *HandshakeState) SetPresharedKey(psk []byte) error {
 	if len(psk) != 32 {
 		return errors.New("noise: specification mandates 256-bit preshared keys")
+	}
+	// Clear any existing PSK first
+	if s.psk != nil {
+		secureZero(s.psk)
 	}
 	s.psk = make([]byte, 32)
 	copy(s.psk, psk)
@@ -554,6 +588,8 @@ func (s *HandshakeState) ReadMessage(out, message []byte) ([]byte, *CipherState,
 				return nil, nil, nil, err
 			}
 			s.ss.MixKey(dh)
+			// Securely zero the DH output after mixing
+			secureZero(dh)
 		case MessagePatternDHES:
 			if s.initiator {
 				dh, err := s.ss.cs.DH(s.e.Private, s.rs)
@@ -561,12 +597,16 @@ func (s *HandshakeState) ReadMessage(out, message []byte) ([]byte, *CipherState,
 					return nil, nil, nil, err
 				}
 				s.ss.MixKey(dh)
+				// Securely zero the DH output after mixing
+				secureZero(dh)
 			} else {
 				dh, err := s.ss.cs.DH(s.s.Private, s.re)
 				if err != nil {
 					return nil, nil, nil, err
 				}
 				s.ss.MixKey(dh)
+				// Securely zero the DH output after mixing
+				secureZero(dh)
 			}
 		case MessagePatternDHSE:
 			if s.initiator {
@@ -575,12 +615,16 @@ func (s *HandshakeState) ReadMessage(out, message []byte) ([]byte, *CipherState,
 					return nil, nil, nil, err
 				}
 				s.ss.MixKey(dh)
+				// Securely zero the DH output after mixing
+				secureZero(dh)
 			} else {
 				dh, err := s.ss.cs.DH(s.e.Private, s.rs)
 				if err != nil {
 					return nil, nil, nil, err
 				}
 				s.ss.MixKey(dh)
+				// Securely zero the DH output after mixing
+				secureZero(dh)
 			}
 		case MessagePatternDHSS:
 			dh, err := s.ss.cs.DH(s.s.Private, s.rs)
@@ -588,6 +632,8 @@ func (s *HandshakeState) ReadMessage(out, message []byte) ([]byte, *CipherState,
 				return nil, nil, nil, err
 			}
 			s.ss.MixKey(dh)
+			// Securely zero the DH output after mixing
+			secureZero(dh)
 		case MessagePatternPSK:
 			s.ss.MixKeyAndHash(s.psk)
 		}

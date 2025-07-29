@@ -120,7 +120,14 @@ func (dh25519) GenerateKeypair(rng io.Reader) (DHKey, error) {
 }
 
 func (dh25519) DH(privkey, pubkey []byte) ([]byte, error) {
-	return curve25519.X25519(privkey, pubkey)
+	result, err := curve25519.X25519(privkey, pubkey)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Note: We don't zero the result here as it's being returned to the caller
+	// The caller is responsible for zeroing when done with the shared secret
+	return result, nil
 }
 
 func (dh25519) DHLen() int     { return 32 }

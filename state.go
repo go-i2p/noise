@@ -31,6 +31,8 @@ type HandshakeState struct {
 }
 
 // NewHandshakeState starts a new handshake using the provided configuration.
+// WARNING: Do not use RandomInc in production - it provides completely predictable
+// random numbers and breaks all cryptographic security guarantees.
 func NewHandshakeState(c Config) (*HandshakeState, error) {
 	hs := &HandshakeState{
 		s:               c.StaticKeypair,

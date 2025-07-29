@@ -15,6 +15,9 @@ type NoiseSuite struct{}
 
 var _ = Suite(&NoiseSuite{})
 
+// RandomInc is a deterministic RNG for testing ONLY
+// DO NOT USE IN PRODUCTION - this provides completely predictable "random" numbers
+// The NewHandshakeState function includes runtime validation to prevent production usage
 type RandomInc byte
 
 func (r *RandomInc) Read(p []byte) (int, error) {

@@ -2,6 +2,7 @@ package noise
 
 import (
 	"math"
+	"sync"
 )
 
 // A CipherState provides symmetric encryption and decryption after a successful
@@ -14,6 +15,7 @@ type CipherState struct {
 	n  uint64
 
 	invalid bool
+	mu      sync.Mutex // Protects nonce management for thread safety
 }
 
 // UnsafeNewCipherState reconstructs a CipherState from exported components.
@@ -36,6 +38,9 @@ func UnsafeNewCipherState(cs CipherSuite, k [32]byte, n uint64) *CipherState {
 // the maximum nonce of 2^64-2 is reached.
 // Moved from: state.go
 func (s *CipherState) Encrypt(out, ad, plaintext []byte) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.invalid {
 		return nil, ErrCipherSuiteCopied
 	}
@@ -54,6 +59,9 @@ func (s *CipherState) Encrypt(out, ad, plaintext []byte) ([]byte, error) {
 // returned after the maximum nonce of 2^64-2 is reached.
 // Moved from: state.go
 func (s *CipherState) Decrypt(out, ad, ciphertext []byte) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.invalid {
 		return nil, ErrCipherSuiteCopied
 	}
@@ -76,6 +84,8 @@ func (s *CipherState) Decrypt(out, ad, ciphertext []byte) ([]byte, error) {
 // CipherState.
 // Moved from: state.go
 func (s *CipherState) Cipher() Cipher {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.invalid = true
 	return s.c
 }
@@ -84,12 +94,16 @@ func (s *CipherState) Cipher() Cipher {
 // new handshake should be performed due to approaching MaxNonce.
 // Moved from: state.go
 func (s *CipherState) Nonce() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.n
 }
 
 // SetNonce sets the current value of n.
 // Moved from: state.go
 func (s *CipherState) SetNonce(n uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.n = n
 }
 
@@ -98,12 +112,17 @@ func (s *CipherState) SetNonce(n uint64) {
 // CipherState at a later point.
 // Moved from: state.go
 func (s *CipherState) UnsafeKey() [32]byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.k
 }
 
 // Rekey advances the key material and securely zeros intermediate values.
 // Moved from: state.go
 func (s *CipherState) Rekey() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	var zeros [32]byte
 	var out []byte
 	out = s.c.Encrypt(out, math.MaxUint64, []byte{}, zeros[:])

@@ -124,24 +124,33 @@ func (s *HandshakeState) ReadMessage(out, message []byte) ([]byte, *CipherState,
 
 ## Medium Findings
 
-### Finding #4: Missing Input Validation in ReadMessage
+
+### Finding #4: Missing Input Validation in ReadMessage - RESOLVED
 **Severity**: MEDIUM  
 **Component**: `state.go:ReadMessage()`  
-**Description**: While `WriteMessage` checks payload length against `MaxMsgLen`, `ReadMessage` doesn't validate incoming message length before processing.  
-**Impact**: Potential DoS through oversized messages, though likely caught by lower layers.  
-**Recommendation**: 
+**Status**: ✅ **FIXED** in commit (to be updated)
+**Description**: While `WriteMessage` checked payload length against `MaxMsgLen`, `ReadMessage` did not validate incoming message length before processing, allowing potential DoS via oversized messages.
+**Impact**: Potential DoS through oversized messages, though likely caught by lower layers.
+**Resolution Applied**:
+- Added a length check to `ReadMessage` to reject any message exceeding `MaxMsgLen` with a clear error message.
+- Added tests: `TestReadMessageOversizedInputValidation` (rejects oversized) and `TestReadMessageMaxSizeMessageValidation` (accepts max size).
+- Full test suite passes, confirming no regressions.
+
+**Code Changes**:
 ```go
 func (s *HandshakeState) ReadMessage(out, message []byte) ([]byte, *CipherState, *CipherState, error) {
     s.mu.Lock()
     defer s.mu.Unlock()
-    
     if len(message) > MaxMsgLen {
         return nil, nil, nil, errors.New("noise: message exceeds maximum length")
     }
-    
     // ... rest of existing implementation
 }
 ```
+
+**Tests**:
+- `message_validation_test.go:TestReadMessageOversizedInputValidation`
+- `message_validation_test.go:TestReadMessageMaxSizeMessageValidation`
 
 ## Low Findings
 

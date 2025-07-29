@@ -250,6 +250,9 @@ func (s *HandshakeState) ReadMessage(out, message []byte) ([]byte, *CipherState,
 	if s.msgIdx > len(s.messagePatterns)-1 {
 		return nil, nil, nil, errors.New("noise: no handshake messages left")
 	}
+	if len(message) > MaxMsgLen {
+		return nil, nil, nil, errors.New("noise: message exceeds maximum length")
+	}
 
 	rsSet := false
 	s.ss.Checkpoint()

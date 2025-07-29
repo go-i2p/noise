@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -47,22 +45,6 @@ func main() {
 		}
 	}
 }
-
-func hexReader(s string) io.Reader {
-	res, err := hex.DecodeString(s)
-	if err != nil {
-		panic(err)
-	}
-	return bytes.NewBuffer(res)
-}
-
-const (
-	key0 = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-	key1 = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
-	key2 = "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40"
-	key3 = "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
-	key4 = "4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60"
-)
 
 func writeHandshake(out io.Writer, cs CipherSuite, h HandshakePattern, pskPlacement int, hasPSK, hasPrologue, payloads bool) {
 	var prologue, psk []byte

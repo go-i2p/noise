@@ -113,100 +113,98 @@ func (s *HandshakeState) WriteMessage(out, payload []byte) ([]byte, *CipherState
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.shouldWrite {
-		return nil, nil, nil, errors.New("noise: unexpected call to WriteMessage should be ReadMessage")
-	}
-	if s.msgIdx > len(s.messagePatterns)-1 {
-		return nil, nil, nil, errors.New("noise: no handshake messages left")
-	}
-	if len(payload) > MaxMsgLen {
-		return nil, nil, nil, errors.New("noise: message is too long")
+	if err := s.validateWriteMessageState(payload); err != nil {
+		return nil, nil, nil, err
 	}
 
+	out, err := s.processWriteMessagePatterns(out)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return s.finalizeWriteMessage(out, payload)
+}
+
+// validateWriteMessageState checks if the WriteMessage call is valid for the current state.
+func (s *HandshakeState) validateWriteMessageState(payload []byte) error {
+	if !s.shouldWrite {
+		return errors.New("noise: unexpected call to WriteMessage should be ReadMessage")
+	}
+	if s.msgIdx > len(s.messagePatterns)-1 {
+		return errors.New("noise: no handshake messages left")
+	}
+	if len(payload) > MaxMsgLen {
+		return errors.New("noise: message is too long")
+	}
+	return nil
+}
+
+// processWriteMessagePatterns processes all message patterns for the current message index.
+func (s *HandshakeState) processWriteMessagePatterns(out []byte) ([]byte, error) {
 	var err error
 	for _, msg := range s.messagePatterns[s.msgIdx] {
 		switch msg {
 		case MessagePatternE:
-			e, err := s.ss.cs.GenerateKeypair(s.rng)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			s.e = e
-			out = append(out, s.e.Public...)
-			s.ss.MixHash(s.e.Public)
-			if s.willPsk {
-				s.ss.MixKey(s.e.Public)
-			}
+			out, err = s.processEphemeralPattern(out)
 		case MessagePatternS:
-			if len(s.s.Public) == 0 {
-				return nil, nil, nil, errors.New("noise: invalid state, s.Public is nil")
-			}
-			out, err = s.ss.EncryptAndHash(out, s.s.Public)
-			if err != nil {
-				return nil, nil, nil, err
-			}
+			out, err = s.processStaticPattern(out)
 		case MessagePatternDHEE:
-			dh, err := s.ss.cs.DH(s.e.Private, s.re)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			s.ss.MixKey(dh)
-			// Securely zero the DH output after mixing
-			secureZero(dh)
+			err = s.performDiffieHellmanEE()
 		case MessagePatternDHES:
-			if s.initiator {
-				dh, err := s.ss.cs.DH(s.e.Private, s.rs)
-				if err != nil {
-					return nil, nil, nil, err
-				}
-				s.ss.MixKey(dh)
-				// Securely zero the DH output after mixing
-				secureZero(dh)
-			} else {
-				dh, err := s.ss.cs.DH(s.s.Private, s.re)
-				if err != nil {
-					return nil, nil, nil, err
-				}
-				s.ss.MixKey(dh)
-				// Securely zero the DH output after mixing
-				secureZero(dh)
-			}
+			err = s.performDiffieHellmanES()
 		case MessagePatternDHSE:
-			if s.initiator {
-				dh, err := s.ss.cs.DH(s.s.Private, s.re)
-				if err != nil {
-					return nil, nil, nil, err
-				}
-				s.ss.MixKey(dh)
-				// Securely zero the DH output after mixing
-				secureZero(dh)
-			} else {
-				dh, err := s.ss.cs.DH(s.e.Private, s.rs)
-				if err != nil {
-					return nil, nil, nil, err
-				}
-				s.ss.MixKey(dh)
-				// Securely zero the DH output after mixing
-				secureZero(dh)
-			}
+			err = s.performDiffieHellmanSE()
 		case MessagePatternDHSS:
-			dh, err := s.ss.cs.DH(s.s.Private, s.rs)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			s.ss.MixKey(dh)
-			// Securely zero the DH output after mixing
-			secureZero(dh)
+			err = s.performDiffieHellmanSS()
 		case MessagePatternPSK:
-			if len(s.psk) == 0 {
-				return nil, nil, nil, errors.New("noise: cannot send psk message without psk set")
-			}
-			s.ss.MixKeyAndHash(s.psk)
+			err = s.processPresharedKeyPattern()
+		}
+
+		if err != nil {
+			return nil, err
 		}
 	}
+	return out, nil
+}
+
+// processEphemeralPattern handles the ephemeral key exchange pattern.
+func (s *HandshakeState) processEphemeralPattern(out []byte) ([]byte, error) {
+	e, err := s.ss.cs.GenerateKeypair(s.rng)
+	if err != nil {
+		return nil, err
+	}
+	s.e = e
+	out = append(out, s.e.Public...)
+	s.ss.MixHash(s.e.Public)
+	if s.willPsk {
+		s.ss.MixKey(s.e.Public)
+	}
+	return out, nil
+}
+
+// processStaticPattern handles the static key exchange pattern.
+func (s *HandshakeState) processStaticPattern(out []byte) ([]byte, error) {
+	if len(s.s.Public) == 0 {
+		return nil, errors.New("noise: invalid state, s.Public is nil")
+	}
+	return s.ss.EncryptAndHash(out, s.s.Public)
+}
+
+// processPresharedKeyPattern handles the preshared key pattern.
+func (s *HandshakeState) processPresharedKeyPattern() error {
+	if len(s.psk) == 0 {
+		return errors.New("noise: cannot send psk message without psk set")
+	}
+	s.ss.MixKeyAndHash(s.psk)
+	return nil
+}
+
+// finalizeWriteMessage completes the WriteMessage operation by encrypting payload and handling completion.
+func (s *HandshakeState) finalizeWriteMessage(out, payload []byte) ([]byte, *CipherState, *CipherState, error) {
 	s.shouldWrite = false
 	s.msgIdx++
-	out, err = s.ss.EncryptAndHash(out, payload)
+
+	out, err := s.ss.EncryptAndHash(out, payload)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -283,11 +281,11 @@ func (s *HandshakeState) validateReadMessageState(message []byte) error {
 // processMessagePatterns handles all message pattern types and processes the message accordingly.
 func (s *HandshakeState) processMessagePatterns(message []byte) ([]byte, bool, error) {
 	rsSet := false
-	
+
 	for _, msg := range s.messagePatterns[s.msgIdx] {
 		var err error
 		var consumed int
-		
+
 		switch msg {
 		case MessagePatternE, MessagePatternS:
 			message, consumed, rsSet, err = s.processKeyExchangePattern(msg, message)
@@ -302,16 +300,16 @@ func (s *HandshakeState) processMessagePatterns(message []byte) ([]byte, bool, e
 		case MessagePatternPSK:
 			s.ss.MixKeyAndHash(s.psk)
 		}
-		
+
 		if err != nil {
 			return nil, rsSet, err
 		}
-		
+
 		if consumed > 0 {
 			message = message[consumed:]
 		}
 	}
-	
+
 	return message, rsSet, nil
 }
 
@@ -321,14 +319,14 @@ func (s *HandshakeState) processKeyExchangePattern(pattern MessagePattern, messa
 	if pattern == MessagePatternS && s.ss.hasK {
 		expected += 16
 	}
-	
+
 	if len(message) < expected {
 		return nil, 0, false, ErrShortMessage
 	}
-	
+
 	var err error
 	rsSet := false
-	
+
 	switch pattern {
 	case MessagePatternE:
 		err = s.processEphemeralKey(message[:expected])
@@ -339,7 +337,7 @@ func (s *HandshakeState) processKeyExchangePattern(pattern MessagePattern, messa
 		s.rs, err = s.ss.DecryptAndHash(s.rs[:0], message[:expected])
 		rsSet = true
 	}
-	
+
 	return message, expected, rsSet, err
 }
 
@@ -372,17 +370,17 @@ func (s *HandshakeState) performDiffieHellmanEE() error {
 func (s *HandshakeState) performDiffieHellmanES() error {
 	var dh []byte
 	var err error
-	
+
 	if s.initiator {
 		dh, err = s.ss.cs.DH(s.e.Private, s.rs)
 	} else {
 		dh, err = s.ss.cs.DH(s.s.Private, s.re)
 	}
-	
+
 	if err != nil {
 		return err
 	}
-	
+
 	s.ss.MixKey(dh)
 	secureZero(dh)
 	return nil
@@ -392,17 +390,17 @@ func (s *HandshakeState) performDiffieHellmanES() error {
 func (s *HandshakeState) performDiffieHellmanSE() error {
 	var dh []byte
 	var err error
-	
+
 	if s.initiator {
 		dh, err = s.ss.cs.DH(s.s.Private, s.re)
 	} else {
 		dh, err = s.ss.cs.DH(s.e.Private, s.rs)
 	}
-	
+
 	if err != nil {
 		return err
 	}
-	
+
 	s.ss.MixKey(dh)
 	secureZero(dh)
 	return nil

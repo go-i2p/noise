@@ -32,10 +32,8 @@ type HandshakeState struct {
 	mu              sync.Mutex // Protects handshake state for thread safety
 }
 
-// NewHandshakeState starts a new handshake using the provided configuration.
-// WARNING: Do not use RandomInc in production - it provides completely predictable
-// random numbers and breaks all cryptographic security guarantees.
-func NewHandshakeState(c Config) (*HandshakeState, error) {
+// initializeHandshakeState creates and initializes the basic HandshakeState structure.
+func initializeHandshakeState(c Config) *HandshakeState {
 	hs := &HandshakeState{
 		s:               c.StaticKeypair,
 		e:               c.EphemeralKeypair,
@@ -53,7 +51,11 @@ func NewHandshakeState(c Config) (*HandshakeState, error) {
 		copy(hs.re, c.PeerEphemeral)
 	}
 	hs.ss.cs = c.CipherSuite
+	return hs
+}
 
+// configurePresharedKey configures the preshared key and modifies message patterns accordingly.
+func configurePresharedKey(hs *HandshakeState, c Config) (string, error) {
 	pskModifier := ""
 	// NB: for psk{0,1} we must have preshared key set in configuration as its needed in the first
 	// message. For psk{2+} we may not know the correct psk yet so it might not be set.
@@ -61,7 +63,7 @@ func NewHandshakeState(c Config) (*HandshakeState, error) {
 		hs.willPsk = true
 		if len(c.PresharedKey) > 0 {
 			if err := hs.SetPresharedKey(c.PresharedKey); err != nil {
-				return nil, err
+				return "", err
 			}
 		}
 
@@ -73,9 +75,17 @@ func NewHandshakeState(c Config) (*HandshakeState, error) {
 			hs.messagePatterns[c.PresharedKeyPlacement-1] = append(hs.messagePatterns[c.PresharedKeyPlacement-1], MessagePatternPSK)
 		}
 	}
+	return pskModifier, nil
+}
 
+// initializeSymmetricState sets up the symmetric state with the protocol name and prologue.
+func initializeSymmetricState(hs *HandshakeState, c Config, pskModifier string) {
 	hs.ss.InitializeSymmetric([]byte("Noise_" + c.Pattern.Name + pskModifier + "_" + string(hs.ss.cs.Name())))
 	hs.ss.MixHash(c.Prologue)
+}
+
+// processPreMessages processes both initiator and responder pre-messages for the handshake.
+func processPreMessages(hs *HandshakeState, c Config) {
 	for _, m := range c.Pattern.InitiatorPreMessages {
 		switch {
 		case c.Initiator && m == MessagePatternS:
@@ -100,6 +110,22 @@ func NewHandshakeState(c Config) (*HandshakeState, error) {
 			hs.ss.MixHash(hs.re)
 		}
 	}
+}
+
+// NewHandshakeState starts a new handshake using the provided configuration.
+// WARNING: Do not use RandomInc in production - it provides completely predictable
+// random numbers and breaks all cryptographic security guarantees.
+func NewHandshakeState(c Config) (*HandshakeState, error) {
+	hs := initializeHandshakeState(c)
+
+	pskModifier, err := configurePresharedKey(hs, c)
+	if err != nil {
+		return nil, err
+	}
+
+	initializeSymmetricState(hs, c, pskModifier)
+	processPreMessages(hs, c)
+
 	return hs, nil
 }
 

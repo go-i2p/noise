@@ -244,120 +244,191 @@ func (s *HandshakeState) ReadMessage(out, message []byte) ([]byte, *CipherState,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.shouldWrite {
-		return nil, nil, nil, errors.New("noise: unexpected call to ReadMessage should be WriteMessage")
-	}
-	if s.msgIdx > len(s.messagePatterns)-1 {
-		return nil, nil, nil, errors.New("noise: no handshake messages left")
-	}
-	if len(message) > MaxMsgLen {
-		return nil, nil, nil, errors.New("noise: message exceeds maximum length")
+	if err := s.validateReadMessageState(message); err != nil {
+		return nil, nil, nil, err
 	}
 
 	rsSet := false
 	s.ss.Checkpoint()
 
-	var err error
+	message, rsSet, err := s.processMessagePatterns(message)
+	if err != nil {
+		s.rollbackOnError(rsSet)
+		return nil, nil, nil, err
+	}
+
+	out, err = s.ss.DecryptAndHash(out, message)
+	if err != nil {
+		s.rollbackOnError(rsSet)
+		return nil, nil, nil, err
+	}
+
+	return s.finalizeReadMessage(out)
+}
+
+// validateReadMessageState checks if the ReadMessage call is valid for the current state.
+func (s *HandshakeState) validateReadMessageState(message []byte) error {
+	if s.shouldWrite {
+		return errors.New("noise: unexpected call to ReadMessage should be WriteMessage")
+	}
+	if s.msgIdx > len(s.messagePatterns)-1 {
+		return errors.New("noise: no handshake messages left")
+	}
+	if len(message) > MaxMsgLen {
+		return errors.New("noise: message exceeds maximum length")
+	}
+	return nil
+}
+
+// processMessagePatterns handles all message pattern types and processes the message accordingly.
+func (s *HandshakeState) processMessagePatterns(message []byte) ([]byte, bool, error) {
+	rsSet := false
+	
 	for _, msg := range s.messagePatterns[s.msgIdx] {
+		var err error
+		var consumed int
+		
 		switch msg {
 		case MessagePatternE, MessagePatternS:
-			expected := s.ss.cs.DHLen()
-			if msg == MessagePatternS && s.ss.hasK {
-				expected += 16
-			}
-			if len(message) < expected {
-				return nil, nil, nil, ErrShortMessage
-			}
-			switch msg {
-			case MessagePatternE:
-				if cap(s.re) < s.ss.cs.DHLen() {
-					s.re = make([]byte, s.ss.cs.DHLen())
-				}
-				s.re = s.re[:s.ss.cs.DHLen()]
-				copy(s.re, message)
-				s.ss.MixHash(s.re)
-				if s.willPsk {
-					s.ss.MixKey(s.re)
-				}
-			case MessagePatternS:
-				if len(s.rs) > 0 {
-					return nil, nil, nil, errors.New("noise: invalid state, rs is not nil")
-				}
-				s.rs, err = s.ss.DecryptAndHash(s.rs[:0], message[:expected])
-				rsSet = true
-			}
-			if err != nil {
-				s.ss.Rollback()
-				if rsSet {
-					s.rs = nil
-				}
-				return nil, nil, nil, err
-			}
-			message = message[expected:]
+			message, consumed, rsSet, err = s.processKeyExchangePattern(msg, message)
 		case MessagePatternDHEE:
-			dh, err := s.ss.cs.DH(s.e.Private, s.re)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			s.ss.MixKey(dh)
-			// Securely zero the DH output after mixing
-			secureZero(dh)
+			err = s.performDiffieHellmanEE()
 		case MessagePatternDHES:
-			if s.initiator {
-				dh, err := s.ss.cs.DH(s.e.Private, s.rs)
-				if err != nil {
-					return nil, nil, nil, err
-				}
-				s.ss.MixKey(dh)
-				// Securely zero the DH output after mixing
-				secureZero(dh)
-			} else {
-				dh, err := s.ss.cs.DH(s.s.Private, s.re)
-				if err != nil {
-					return nil, nil, nil, err
-				}
-				s.ss.MixKey(dh)
-				// Securely zero the DH output after mixing
-				secureZero(dh)
-			}
+			err = s.performDiffieHellmanES()
 		case MessagePatternDHSE:
-			if s.initiator {
-				dh, err := s.ss.cs.DH(s.s.Private, s.re)
-				if err != nil {
-					return nil, nil, nil, err
-				}
-				s.ss.MixKey(dh)
-				// Securely zero the DH output after mixing
-				secureZero(dh)
-			} else {
-				dh, err := s.ss.cs.DH(s.e.Private, s.rs)
-				if err != nil {
-					return nil, nil, nil, err
-				}
-				s.ss.MixKey(dh)
-				// Securely zero the DH output after mixing
-				secureZero(dh)
-			}
+			err = s.performDiffieHellmanSE()
 		case MessagePatternDHSS:
-			dh, err := s.ss.cs.DH(s.s.Private, s.rs)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			s.ss.MixKey(dh)
-			// Securely zero the DH output after mixing
-			secureZero(dh)
+			err = s.performDiffieHellmanSS()
 		case MessagePatternPSK:
 			s.ss.MixKeyAndHash(s.psk)
 		}
-	}
-	out, err = s.ss.DecryptAndHash(out, message)
-	if err != nil {
-		s.ss.Rollback()
-		if rsSet {
-			s.rs = nil
+		
+		if err != nil {
+			return nil, rsSet, err
 		}
-		return nil, nil, nil, err
+		
+		if consumed > 0 {
+			message = message[consumed:]
+		}
 	}
+	
+	return message, rsSet, nil
+}
+
+// processKeyExchangePattern handles ephemeral and static key exchange patterns.
+func (s *HandshakeState) processKeyExchangePattern(pattern MessagePattern, message []byte) ([]byte, int, bool, error) {
+	expected := s.ss.cs.DHLen()
+	if pattern == MessagePatternS && s.ss.hasK {
+		expected += 16
+	}
+	
+	if len(message) < expected {
+		return nil, 0, false, ErrShortMessage
+	}
+	
+	var err error
+	rsSet := false
+	
+	switch pattern {
+	case MessagePatternE:
+		err = s.processEphemeralKey(message[:expected])
+	case MessagePatternS:
+		if len(s.rs) > 0 {
+			return nil, 0, false, errors.New("noise: invalid state, rs is not nil")
+		}
+		s.rs, err = s.ss.DecryptAndHash(s.rs[:0], message[:expected])
+		rsSet = true
+	}
+	
+	return message, expected, rsSet, err
+}
+
+// processEphemeralKey processes the ephemeral key from the message.
+func (s *HandshakeState) processEphemeralKey(keyData []byte) error {
+	if cap(s.re) < s.ss.cs.DHLen() {
+		s.re = make([]byte, s.ss.cs.DHLen())
+	}
+	s.re = s.re[:s.ss.cs.DHLen()]
+	copy(s.re, keyData)
+	s.ss.MixHash(s.re)
+	if s.willPsk {
+		s.ss.MixKey(s.re)
+	}
+	return nil
+}
+
+// performDiffieHellmanEE performs Diffie-Hellman operation between ephemeral keys.
+func (s *HandshakeState) performDiffieHellmanEE() error {
+	dh, err := s.ss.cs.DH(s.e.Private, s.re)
+	if err != nil {
+		return err
+	}
+	s.ss.MixKey(dh)
+	secureZero(dh)
+	return nil
+}
+
+// performDiffieHellmanES performs Diffie-Hellman operation between ephemeral and static keys.
+func (s *HandshakeState) performDiffieHellmanES() error {
+	var dh []byte
+	var err error
+	
+	if s.initiator {
+		dh, err = s.ss.cs.DH(s.e.Private, s.rs)
+	} else {
+		dh, err = s.ss.cs.DH(s.s.Private, s.re)
+	}
+	
+	if err != nil {
+		return err
+	}
+	
+	s.ss.MixKey(dh)
+	secureZero(dh)
+	return nil
+}
+
+// performDiffieHellmanSE performs Diffie-Hellman operation between static and ephemeral keys.
+func (s *HandshakeState) performDiffieHellmanSE() error {
+	var dh []byte
+	var err error
+	
+	if s.initiator {
+		dh, err = s.ss.cs.DH(s.s.Private, s.re)
+	} else {
+		dh, err = s.ss.cs.DH(s.e.Private, s.rs)
+	}
+	
+	if err != nil {
+		return err
+	}
+	
+	s.ss.MixKey(dh)
+	secureZero(dh)
+	return nil
+}
+
+// performDiffieHellmanSS performs Diffie-Hellman operation between static keys.
+func (s *HandshakeState) performDiffieHellmanSS() error {
+	dh, err := s.ss.cs.DH(s.s.Private, s.rs)
+	if err != nil {
+		return err
+	}
+	s.ss.MixKey(dh)
+	secureZero(dh)
+	return nil
+}
+
+// rollbackOnError handles error rollback and cleanup of state.
+func (s *HandshakeState) rollbackOnError(rsSet bool) {
+	s.ss.Rollback()
+	if rsSet {
+		s.rs = nil
+	}
+}
+
+// finalizeReadMessage completes the read message operation and returns appropriate cipher states.
+func (s *HandshakeState) finalizeReadMessage(out []byte) ([]byte, *CipherState, *CipherState, error) {
 	s.shouldWrite = true
 	s.msgIdx++
 

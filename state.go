@@ -80,7 +80,11 @@ func configurePresharedKey(hs *HandshakeState, c Config) (string, error) {
 
 // initializeSymmetricState sets up the symmetric state with the protocol name and prologue.
 func initializeSymmetricState(hs *HandshakeState, c Config, pskModifier string) {
-	hs.ss.InitializeSymmetric([]byte("Noise_" + c.Pattern.Name + pskModifier + "_" + string(hs.ss.cs.Name())))
+	if len(c.ProtocolName) > 0 {
+		hs.ss.InitializeSymmetric(c.ProtocolName)
+	} else {
+		hs.ss.InitializeSymmetric([]byte("Noise_" + c.Pattern.Name + pskModifier + "_" + string(hs.ss.cs.Name())))
+	}
 	hs.ss.MixHash(c.Prologue)
 }
 

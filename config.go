@@ -46,4 +46,11 @@ type Config struct {
 	// PeerEphemeral is the ephemeral public key of the remote peer that was
 	// provided as a pre-message in the handshake.
 	PeerEphemeral []byte
+
+	// ProtocolName, if set, will be used as the full protocol name passed to
+	// InitializeSymmetric instead of the auto-constructed
+	// "Noise_" + Pattern.Name + "_" + CipherSuite.Name() string.
+	// This is useful for protocols like NTCP2 that use non-standard names
+	// such as "Noise_XKaesobfse+hs2+hs3_25519_ChaChaPoly_SHA256".
+	ProtocolName []byte
 }

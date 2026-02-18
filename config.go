@@ -53,4 +53,18 @@ type Config struct {
 	// This is useful for protocols like NTCP2 that use non-standard names
 	// such as "Noise_XKaesobfse+hs2+hs3_25519_ChaChaPoly_SHA256".
 	ProtocolName []byte
+
+	// AdditionalSymmetricKeyLabels specifies labels for Additional Symmetric
+	// Key (ASK) derivation at Split() time, per Noise spec §10.3. Each label
+	// produces a 32-byte key derived from the chaining key. The derived keys
+	// are available via HandshakeState.AdditionalSymmetricKeys() after the
+	// handshake completes.
+	//
+	// For each label, the derivation is:
+	//   temp_key    = HMAC-HASH(ck, zerolen)
+	//   ask[label]  = HMAC-HASH(temp_key, label || byte(0x01))
+	//
+	// Example (NTCP2):
+	//   config.AdditionalSymmetricKeyLabels = [][]byte{[]byte("ask")}
+	AdditionalSymmetricKeyLabels [][]byte
 }

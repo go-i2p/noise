@@ -1,5 +1,7 @@
 package noise
 
+import "crypto/hmac"
+
 // A symmetricState provides symmetric encryption and decryption during handshake.
 // Moved from: state.go
 type symmetricState struct {
@@ -115,6 +117,54 @@ func (s *symmetricState) Split() (*CipherState, *CipherState) {
 	secureZero(s.ck)
 
 	return s1, s2
+}
+
+// SplitWithASK performs Split() and additionally derives one or more Additional
+// Symmetric Keys (ASK) per Noise spec §10.3.
+//
+// For each label, it computes:
+//
+//	temp_key    = HMAC-HASH(ck, zerolen)
+//	ask[label]  = HMAC-HASH(temp_key, label || byte(0x01))
+//
+// The chaining key is zeroed after derivation, just as in Split().
+func (s *symmetricState) SplitWithASK(labels ...[]byte) (*CipherState, *CipherState, [][]byte) {
+	s1, s2 := &CipherState{cs: s.cs}, &CipherState{cs: s.cs}
+	hk1, hk2, _ := hkdf(s.cs.Hash, 2, s1.k[:0], s2.k[:0], nil, s.ck, nil)
+	copy(s1.k[:], hk1)
+	copy(s2.k[:], hk2)
+	s1.c = s.cs.Cipher(s1.k)
+	s2.c = s.cs.Cipher(s2.k)
+
+	// Derive ASK values from the chaining key before zeroing it.
+	// Per Noise spec §10.3:
+	//   temp_key   = HMAC-HASH(ck, zerolen)
+	//   ask[label] = HMAC-HASH(temp_key, label || byte(0x01))
+	var asks [][]byte
+	if len(labels) > 0 {
+		// Compute temp_key = HMAC-HASH(ck, zerolen)
+		tempMAC := hmac.New(s.cs.Hash, s.ck)
+		tempMAC.Write(nil)
+		tempKey := tempMAC.Sum(nil)
+
+		asks = make([][]byte, len(labels))
+		for i, label := range labels {
+			askMAC := hmac.New(s.cs.Hash, tempKey)
+			askMAC.Write(label)
+			askMAC.Write([]byte{0x01})
+			asks[i] = askMAC.Sum(nil)
+		}
+
+		secureZero(tempKey)
+	}
+
+	// Securely zero the intermediate key material
+	secureZero(hk1)
+	secureZero(hk2)
+	// Zero the chaining key as it's no longer needed after split
+	secureZero(s.ck)
+
+	return s1, s2, asks
 }
 
 // Checkpoint saves the current symmetric state for rollback.

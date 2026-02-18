@@ -29,6 +29,8 @@ type HandshakeState struct {
 	initiator       bool
 	msgIdx          int
 	rng             io.Reader
+	askLabels       [][]byte   // ASK labels for Additional Symmetric Key derivation (Noise §10.3)
+	askKeys         [][]byte   // ASK values derived during Split()
 	mu              sync.Mutex // Protects handshake state for thread safety
 }
 
@@ -42,6 +44,7 @@ func initializeHandshakeState(c Config) *HandshakeState {
 		shouldWrite:     c.Initiator,
 		initiator:       c.Initiator,
 		rng:             c.Random,
+		askLabels:       c.AdditionalSymmetricKeyLabels,
 	}
 	if hs.rng == nil {
 		hs.rng = rand.Reader
@@ -240,7 +243,8 @@ func (s *HandshakeState) finalizeWriteMessage(out, payload []byte) ([]byte, *Cip
 	}
 
 	if s.msgIdx >= len(s.messagePatterns) {
-		cs1, cs2 := s.ss.Split()
+		cs1, cs2, asks := s.ss.SplitWithASK(s.askLabels...)
+		s.askKeys = asks
 		return out, cs1, cs2, nil
 	}
 
@@ -461,7 +465,8 @@ func (s *HandshakeState) finalizeReadMessage(out []byte) ([]byte, *CipherState, 
 	s.msgIdx++
 
 	if s.msgIdx >= len(s.messagePatterns) {
-		cs1, cs2 := s.ss.Split()
+		cs1, cs2, asks := s.ss.SplitWithASK(s.askLabels...)
+		s.askKeys = asks
 		return out, cs1, cs2, nil
 	}
 
@@ -475,6 +480,18 @@ func (s *HandshakeState) ChannelBinding() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.ss.h
+}
+
+// AdditionalSymmetricKeys returns the Additional Symmetric Key (ASK) values
+// derived during Split(), per Noise spec §10.3. Returns nil if no labels were
+// configured via Config.AdditionalSymmetricKeyLabels or if the handshake has
+// not yet completed. The returned keys correspond 1:1 to the configured labels.
+//
+// Callers should securely zero the returned keys when they are no longer needed.
+func (s *HandshakeState) AdditionalSymmetricKeys() [][]byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.askKeys
 }
 
 // PeerStatic returns the static key provided by the remote peer during

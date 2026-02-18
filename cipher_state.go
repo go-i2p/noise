@@ -132,3 +132,17 @@ func (s *CipherState) Rekey() {
 	// Securely zero intermediate data
 	secureZero(out)
 }
+
+// ZeroKey securely zeroes the cipher key material held by this CipherState.
+// After calling ZeroKey, any subsequent Encrypt or Decrypt calls will fail
+// with ErrCipherSuiteCopied. This should be called when the session is being
+// torn down to minimize the window during which key material is available in
+// memory.
+func (s *CipherState) ZeroKey() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.k {
+		s.k[i] = 0
+	}
+	s.invalid = true
+}

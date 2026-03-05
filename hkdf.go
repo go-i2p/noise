@@ -2,6 +2,7 @@ package noise
 
 import (
 	"crypto/hmac"
+	"crypto/sha256"
 	"hash"
 )
 
@@ -87,4 +88,23 @@ func HKDF1(h func() hash.Hash, chainingKey, inputKeyMaterial []byte) []byte {
 func HKDF2(h func() hash.Hash, chainingKey, inputKeyMaterial []byte) ([]byte, []byte) {
 	out1, out2, _ := hkdf(h, 2, nil, nil, nil, chainingKey, inputKeyMaterial)
 	return out1, out2
+}
+
+// HKDF1SHA256 is a convenience wrapper around HKDF1 using SHA-256.
+// It returns the derived key as a fixed-size [32]byte array.
+func HKDF1SHA256(chainingKey, inputKeyMaterial []byte) [32]byte {
+	out := HKDF1(sha256.New, chainingKey, inputKeyMaterial)
+	var result [32]byte
+	copy(result[:], out)
+	return result
+}
+
+// HKDF2SHA256 is a convenience wrapper around HKDF2 using SHA-256.
+// It returns both derived keys as fixed-size [32]byte arrays.
+func HKDF2SHA256(chainingKey, inputKeyMaterial []byte) ([32]byte, [32]byte) {
+	out1, out2 := HKDF2(sha256.New, chainingKey, inputKeyMaterial)
+	var r1, r2 [32]byte
+	copy(r1[:], out1)
+	copy(r2[:], out2)
+	return r1, r2
 }

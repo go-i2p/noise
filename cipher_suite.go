@@ -27,6 +27,14 @@ func NewCipherSuite(dh DHFunc, c CipherFunc, h HashFunc) CipherSuite {
 	}
 }
 
+// ChaChaPoly_SHA256 returns a CipherSuite using 25519 DH, ChaChaPoly AEAD,
+// and SHA-256 hashing. This is the most common suite for Noise IK handshakes
+// and is provided as a convenience so callers don't need to assemble the
+// primitives manually.
+func ChaChaPoly_SHA256() CipherSuite {
+	return NewCipherSuite(DH25519, CipherChaChaPoly, HashSHA256)
+}
+
 type ciphersuite struct {
 	DHFunc
 	CipherFunc

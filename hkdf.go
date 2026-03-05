@@ -70,3 +70,21 @@ func hkdf(h func() hash.Hash, outputs int, out1, out2, out3, chainingKey, inputK
 	out3 = generateThirdOutput(h, tempKey, out2, out3)
 	return out1, out2, out3
 }
+
+// HKDF1 performs HKDF expansion with one output using the provided hash function,
+// chaining key, and input key material. It returns a single derived key.
+// This implements the single-output variant of HKDF from the Noise Protocol
+// Framework §4.
+func HKDF1(h func() hash.Hash, chainingKey, inputKeyMaterial []byte) []byte {
+	out1, _, _ := hkdf(h, 1, nil, nil, nil, chainingKey, inputKeyMaterial)
+	return out1
+}
+
+// HKDF2 performs HKDF expansion with two outputs using the provided hash function,
+// chaining key, and input key material. It returns two derived keys.
+// This implements the two-output variant of HKDF from the Noise Protocol
+// Framework §4.
+func HKDF2(h func() hash.Hash, chainingKey, inputKeyMaterial []byte) ([]byte, []byte) {
+	out1, out2, _ := hkdf(h, 2, nil, nil, nil, chainingKey, inputKeyMaterial)
+	return out1, out2
+}

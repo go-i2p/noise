@@ -38,7 +38,7 @@ func TestDHOutputZeroing(t *testing.T) {
 	cs := NewCipherSuite(DH25519, CipherChaChaPoly, HashSHA256)
 
 	// Create symmetric state
-	ss := &symmetricState{}
+	ss := &SymmetricState{}
 	ss.cs = cs
 	ss.InitializeSymmetric([]byte("test"))
 

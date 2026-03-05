@@ -217,10 +217,10 @@ func TestSplitWithASKNoLabels(t *testing.T) {
 // TestSplitWithASKMatchesManualDerivation verifies the ASK output matches a
 // manual HMAC computation, ensuring spec compliance.
 func TestSplitWithASKMatchesManualDerivation(t *testing.T) {
-	// We'll test at the symmetricState level directly.
+	// We'll test at the SymmetricState level directly.
 	cs := NewCipherSuite(DH25519, CipherChaChaPoly, HashSHA256)
 
-	ss := symmetricState{}
+	ss := SymmetricState{}
 	ss.cs = cs
 	ss.InitializeSymmetric([]byte("Noise_NN_25519_ChaChaPoly_SHA256"))
 

@@ -2,9 +2,10 @@ package noise
 
 import "crypto/hmac"
 
-// A symmetricState provides symmetric encryption and decryption during handshake.
+// A SymmetricState provides symmetric encryption and decryption during handshake.
+// It implements the SymmetricState object from the Noise Protocol Framework §5.
 // Moved from: state.go
-type symmetricState struct {
+type SymmetricState struct {
 	CipherState
 	hasK bool
 	ck   []byte
@@ -16,7 +17,7 @@ type symmetricState struct {
 
 // InitializeSymmetric initializes the symmetric state with a handshake name.
 // Moved from: state.go
-func (s *symmetricState) InitializeSymmetric(handshakeName []byte) {
+func (s *SymmetricState) InitializeSymmetric(handshakeName []byte) {
 	h := s.cs.Hash()
 	if len(handshakeName) <= h.Size() {
 		s.h = make([]byte, h.Size())
@@ -31,7 +32,7 @@ func (s *symmetricState) InitializeSymmetric(handshakeName []byte) {
 
 // MixKey mixes the DH output with the chaining key.
 // Moved from: state.go
-func (s *symmetricState) MixKey(dhOutput []byte) {
+func (s *SymmetricState) MixKey(dhOutput []byte) {
 	s.n = 0
 	s.hasK = true
 	var hk []byte
@@ -46,7 +47,7 @@ func (s *symmetricState) MixKey(dhOutput []byte) {
 
 // MixHash mixes data with the handshake hash.
 // Moved from: state.go
-func (s *symmetricState) MixHash(data []byte) {
+func (s *SymmetricState) MixHash(data []byte) {
 	h := s.cs.Hash()
 	h.Write(s.h)
 	h.Write(data)
@@ -55,7 +56,7 @@ func (s *symmetricState) MixHash(data []byte) {
 
 // MixKeyAndHash mixes data with both the chaining key and handshake hash.
 // Moved from: state.go
-func (s *symmetricState) MixKeyAndHash(data []byte) {
+func (s *SymmetricState) MixKeyAndHash(data []byte) {
 	var hk []byte
 	var temp []byte
 	s.ck, temp, hk = hkdf(s.cs.Hash, 3, s.ck[:0], temp, s.k[:0], s.ck, data)
@@ -72,7 +73,7 @@ func (s *symmetricState) MixKeyAndHash(data []byte) {
 
 // EncryptAndHash encrypts plaintext and mixes with hash.
 // Moved from: state.go
-func (s *symmetricState) EncryptAndHash(out, plaintext []byte) ([]byte, error) {
+func (s *SymmetricState) EncryptAndHash(out, plaintext []byte) ([]byte, error) {
 	if !s.hasK {
 		s.MixHash(plaintext)
 		return append(out, plaintext...), nil
@@ -87,7 +88,7 @@ func (s *symmetricState) EncryptAndHash(out, plaintext []byte) ([]byte, error) {
 
 // DecryptAndHash decrypts data and mixes with hash.
 // Moved from: state.go
-func (s *symmetricState) DecryptAndHash(out, data []byte) ([]byte, error) {
+func (s *SymmetricState) DecryptAndHash(out, data []byte) ([]byte, error) {
 	if !s.hasK {
 		s.MixHash(data)
 		return append(out, data...), nil
@@ -102,7 +103,7 @@ func (s *symmetricState) DecryptAndHash(out, data []byte) ([]byte, error) {
 
 // Split splits the symmetric state into two cipher states.
 // Moved from: state.go
-func (s *symmetricState) Split() (*CipherState, *CipherState) {
+func (s *SymmetricState) Split() (*CipherState, *CipherState) {
 	s1, s2 := &CipherState{cs: s.cs}, &CipherState{cs: s.cs}
 	hk1, hk2, _ := hkdf(s.cs.Hash, 2, s1.k[:0], s2.k[:0], nil, s.ck, nil)
 	copy(s1.k[:], hk1)
@@ -128,7 +129,7 @@ func (s *symmetricState) Split() (*CipherState, *CipherState) {
 //	ask[label]  = HMAC-HASH(temp_key, label || byte(0x01))
 //
 // The chaining key is zeroed after derivation, just as in Split().
-func (s *symmetricState) SplitWithASK(labels ...[]byte) (*CipherState, *CipherState, [][]byte) {
+func (s *SymmetricState) SplitWithASK(labels ...[]byte) (*CipherState, *CipherState, [][]byte) {
 	s1, s2 := &CipherState{cs: s.cs}, &CipherState{cs: s.cs}
 	hk1, hk2, _ := hkdf(s.cs.Hash, 2, s1.k[:0], s2.k[:0], nil, s.ck, nil)
 	copy(s1.k[:], hk1)
@@ -169,7 +170,7 @@ func (s *symmetricState) SplitWithASK(labels ...[]byte) (*CipherState, *CipherSt
 
 // Checkpoint saves the current symmetric state for rollback.
 // Moved from: state.go
-func (s *symmetricState) Checkpoint() {
+func (s *SymmetricState) Checkpoint() {
 	if len(s.ck) > cap(s.prevCK) {
 		s.prevCK = make([]byte, len(s.ck))
 	}
@@ -185,9 +186,55 @@ func (s *symmetricState) Checkpoint() {
 
 // Rollback restores the symmetric state from checkpoint.
 // Moved from: state.go
-func (s *symmetricState) Rollback() {
+func (s *SymmetricState) Rollback() {
 	s.ck = s.ck[:len(s.prevCK)]
 	copy(s.ck, s.prevCK)
 	s.h = s.h[:len(s.prevH)]
 	copy(s.h, s.prevH)
+}
+
+// ChainingKey returns a copy of the current chaining key.
+func (s *SymmetricState) ChainingKey() []byte {
+	out := make([]byte, len(s.ck))
+	copy(out, s.ck)
+	return out
+}
+
+// SetChainingKey sets the chaining key to a copy of the provided value.
+func (s *SymmetricState) SetChainingKey(ck []byte) {
+	if cap(s.ck) >= len(ck) {
+		s.ck = s.ck[:len(ck)]
+	} else {
+		s.ck = make([]byte, len(ck))
+	}
+	copy(s.ck, ck)
+}
+
+// HandshakeHash returns a copy of the current handshake hash.
+func (s *SymmetricState) HandshakeHash() []byte {
+	out := make([]byte, len(s.h))
+	copy(out, s.h)
+	return out
+}
+
+// SetHandshakeHash sets the handshake hash to a copy of the provided value.
+func (s *SymmetricState) SetHandshakeHash(h []byte) {
+	if cap(s.h) >= len(h) {
+		s.h = s.h[:len(h)]
+	} else {
+		s.h = make([]byte, len(h))
+	}
+	copy(s.h, h)
+}
+
+// HasKey reports whether a cipher key has been set.
+func (s *SymmetricState) HasKey() bool {
+	return s.hasK
+}
+
+// SetCipherSuite sets the underlying CipherSuite on the SymmetricState.
+// This must be called before InitializeSymmetric or any other method that
+// requires cryptographic operations.
+func (s *SymmetricState) SetCipherSuite(cs CipherSuite) {
+	s.cs = cs
 }

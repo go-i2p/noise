@@ -17,7 +17,7 @@ import (
 // A HandshakeState tracks the state of a Noise handshake. It may be discarded
 // after the handshake is complete.
 type HandshakeState struct {
-	ss              symmetricState
+	ss              SymmetricState
 	s               DHKey  // local static keypair
 	e               DHKey  // local ephemeral keypair
 	rs              []byte // remote party's static public key

@@ -23,7 +23,7 @@ func TestSecureZeroingFixed(t *testing.T) {
 	}
 
 	// Perform DH and MixKey operations which should now securely zero intermediate data
-	ss := &symmetricState{}
+	ss := &SymmetricState{}
 	ss.cs = cs
 	ss.InitializeSymmetric([]byte("test"))
 

@@ -25,11 +25,13 @@ func hexReader(s []byte) io.Reader {
 	return bytes.NewBuffer(mustHex(s))
 }
 
-var patterns = make(map[string]HandshakePattern)
-var ciphers = map[string]CipherFunc{
-	"AESGCM":     CipherAESGCM,
-	"ChaChaPoly": CipherChaChaPoly,
-}
+var (
+	patterns = make(map[string]HandshakePattern)
+	ciphers  = map[string]CipherFunc{
+		"AESGCM":     CipherAESGCM,
+		"ChaChaPoly": CipherChaChaPoly,
+	}
+)
 var hashes = map[string]HashFunc{
 	"SHA256":  HashSHA256,
 	"SHA512":  HashSHA512,

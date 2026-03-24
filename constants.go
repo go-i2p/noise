@@ -29,6 +29,8 @@ const (
 
 // Error constants used throughout the package.
 // Moved from: state.go
-var ErrMaxNonce = errors.New("noise: cipherstate has reached maximum n, a new handshake must be performed")
-var ErrCipherSuiteCopied = errors.New("noise: CipherSuite has been copied, state is invalid")
-var ErrShortMessage = errors.New("noise: message is too short")
+var (
+	ErrMaxNonce          = errors.New("noise: cipherstate has reached maximum n, a new handshake must be performed")
+	ErrCipherSuiteCopied = errors.New("noise: CipherSuite has been copied, state is invalid")
+	ErrShortMessage      = errors.New("noise: message is too short")
+)

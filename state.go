@@ -526,3 +526,22 @@ func (s *HandshakeState) LocalEphemeral() DHKey {
 	defer s.mu.Unlock()
 	return s.e
 }
+
+// MixHash mixes the given data into the handshake hash (h = SHA256(h || data)).
+// This is used by protocols like I2P SSU2 that require binding additional data
+// (e.g. packet headers) into the handshake hash between pattern messages.
+func (s *HandshakeState) MixHash(data []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ss.MixHash(data)
+}
+
+// ChainingKey returns a copy of the current chaining key from the symmetric
+// state. This is used by protocols like I2P SSU2 that derive intermediate
+// header protection keys (e.g. "SessCreateHeader", "SessionConfirmed") from
+// the chaining key at specific points during the handshake.
+func (s *HandshakeState) ChainingKey() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ss.ChainingKey()
+}

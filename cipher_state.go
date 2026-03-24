@@ -146,3 +146,15 @@ func (s *CipherState) ZeroKey() {
 	}
 	s.invalid = true
 }
+
+// UnsafeSetKey replaces the cipher key material and reinitializes the
+// underlying cipher with the new key. This is used by protocols like I2P
+// SSU2 that derive a secondary data-phase key from the split key via HKDF.
+// The nonce is NOT reset. After calling this method, subsequent Encrypt/Decrypt
+// calls will use the new key.
+func (s *CipherState) UnsafeSetKey(k [32]byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.k = k
+	s.c = s.cs.Cipher(k)
+}

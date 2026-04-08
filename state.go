@@ -494,6 +494,15 @@ func (s *HandshakeState) AdditionalSymmetricKeys() [][]byte {
 	return s.askKeys
 }
 
+// MixHash mixes additional data into the handshake hash. This allows
+// protocol extensions to incorporate extra values (such as padding) into
+// the transcript between handshake messages.
+func (s *HandshakeState) MixHash(data []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ss.MixHash(data)
+}
+
 // PeerStatic returns the static key provided by the remote peer during
 // a handshake. It is an error to call this method if a handshake message
 // containing a static key has not been read.

@@ -32,6 +32,7 @@ var (
 		"ChaChaPoly": CipherChaChaPoly,
 	}
 )
+
 var hashes = map[string]HashFunc{
 	"SHA256":  HashSHA256,
 	"SHA512":  HashSHA512,

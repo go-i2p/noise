@@ -3,7 +3,7 @@ module github.com/go-i2p/noise
 go 1.26.1
 
 require (
-	golang.org/x/crypto v0.50.0
+	golang.org/x/crypto v0.51.0
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c
 )
 

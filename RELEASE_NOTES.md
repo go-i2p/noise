@@ -1,4 +1,4 @@
-Release notes for: `noise` Version `0.1.5999`
+Release notes for: `noise` Version `0.1.59999`
 ==============================================
 
 This release exposes internals through the handshake datastructure.

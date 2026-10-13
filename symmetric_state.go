@@ -1,6 +1,13 @@
 package noise
 
-import "crypto/hmac"
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"hash"
+	"io"
+
+	xhkdf "golang.org/x/crypto/hkdf"
+)
 
 // A SymmetricState provides symmetric encryption and decryption during handshake.
 // It implements the SymmetricState object from the Noise Protocol Framework §5.
@@ -43,6 +50,59 @@ func (s *SymmetricState) MixKey(dhOutput []byte) {
 	// Securely zero the intermediate key material
 	secureZero(hk)
 	// Note: dhOutput is zeroed by the caller since they own the memory
+}
+
+// MixKeyRFC5869 implements the I2P specification's MixKey using RFC 5869 HKDF:
+//
+//	keydata = HKDF(salt=chainKey, ikm=sharedSecret, info="", length=64)
+//	chainKey = keydata[0:32]
+//	k = keydata[32:64]
+//	n = 0
+//
+// This is the KDF used by the I2P Noise IK handshake (spec §"KDFs for New
+// Session Message") and differs from the Noise Protocol Framework §4 MixKey
+// (which uses HMAC-based HKDF). The I2P spec mandates RFC 5869 throughout.
+func (s *SymmetricState) MixKeyRFC5869(sharedSecret []byte) error {
+	keydata, err := hkdfExpand(sha256.New, s.ck, sharedSecret, []byte(""), 64)
+	if err != nil {
+		return err
+	}
+	s.n = 0
+	s.hasK = true
+	copy(s.ck, keydata[0:32])
+	copy(s.k[:], keydata[32:64])
+	s.c = s.cs.Cipher(s.k)
+	secureZero(keydata)
+	return nil
+}
+
+// MixKeyRFC5869CKOnly implements the I2P specification's "ee" token KDF using
+// RFC 5869 HKDF with a 32-byte output (chaining key only, no cipher key update):
+//
+//	keydata = HKDF(salt=chainKey, ikm=sharedSecret, info="", length=32)
+//	chainKey = keydata[0:32]
+//
+// The cipher key (k) and nonce (n) are NOT modified.
+func (s *SymmetricState) MixKeyRFC5869CKOnly(sharedSecret []byte) error {
+	keydata, err := hkdfExpand(sha256.New, s.ck, sharedSecret, []byte(""), 32)
+	if err != nil {
+		return err
+	}
+	copy(s.ck, keydata[0:32])
+	secureZero(keydata)
+	return nil
+}
+
+// hkdfExpand performs RFC 5869 HKDF-Extract-Expand using the provided hash.
+// It is a thin wrapper around golang.org/x/crypto/hkdf that returns the
+// expanded output directly.
+func hkdfExpand(newHash func() hash.Hash, salt, ikm, info []byte, length int) ([]byte, error) {
+	h := xhkdf.New(newHash, ikm, salt, info)
+	out := make([]byte, length)
+	if _, err := io.ReadFull(h, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // MixHash mixes data with the handshake hash.

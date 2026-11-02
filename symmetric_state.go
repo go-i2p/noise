@@ -42,12 +42,18 @@ func (s *SymmetricState) InitializeSymmetric(handshakeName []byte) {
 func (s *SymmetricState) MixKey(dhOutput []byte) {
 	s.n = 0
 	s.hasK = true
-	var hk []byte
-	s.ck, hk, _ = hkdf(s.cs.Hash, 2, s.ck[:0], s.k[:0], nil, s.ck, dhOutput)
+
+	// The outputs are written to independent buffers, never to s.ck[:0] or
+	// s.k[:0]: hkdf appends into the slices it is given, so passing a live key
+	// field means the returned slice aliases it and the secureZero calls below
+	// would wipe the state's own key material. See Split for the full note.
+	ck, hk, _ := hkdf(s.cs.Hash, 2, nil, nil, nil, s.ck, dhOutput)
+	copy(s.ck, ck)
 	copy(s.k[:], hk)
 	s.c = s.cs.Cipher(s.k)
 
 	// Securely zero the intermediate key material
+	secureZero(ck)
 	secureZero(hk)
 	// Note: dhOutput is zeroed by the caller since they own the memory
 }
@@ -117,16 +123,18 @@ func (s *SymmetricState) MixHash(data []byte) {
 // MixKeyAndHash mixes data with both the chaining key and handshake hash.
 // Moved from: state.go
 func (s *SymmetricState) MixKeyAndHash(data []byte) {
-	var hk []byte
-	var temp []byte
-	s.ck, temp, hk = hkdf(s.cs.Hash, 3, s.ck[:0], temp, s.k[:0], s.ck, data)
+	// Outputs go to independent buffers, never to s.ck[:0] or s.k[:0]; see the
+	// note in MixKey.
+	ck, temp, hk := hkdf(s.cs.Hash, 3, nil, nil, nil, s.ck, data)
 	s.MixHash(temp)
+	copy(s.ck, ck)
 	copy(s.k[:], hk)
 	s.c = s.cs.Cipher(s.k)
 	s.n = 0
 	s.hasK = true
 
 	// Securely zero intermediate key material
+	secureZero(ck)
 	secureZero(hk)
 	secureZero(temp)
 }
@@ -165,7 +173,15 @@ func (s *SymmetricState) DecryptAndHash(out, data []byte) ([]byte, error) {
 // Moved from: state.go
 func (s *SymmetricState) Split() (*CipherState, *CipherState) {
 	s1, s2 := &CipherState{cs: s.cs}, &CipherState{cs: s.cs}
-	hk1, hk2, _ := hkdf(s.cs.Hash, 2, s1.k[:0], s2.k[:0], nil, s.ck, nil)
+
+	// The HKDF outputs MUST be written to independent buffers rather than to
+	// s1.k[:0]/s2.k[:0]. hkdf appends into the slices it is given, so passing a
+	// CipherState key array makes the returned slice alias that array; the
+	// secureZero calls below would then destroy the live session keys, leaving
+	// every session with an all-zero key readable by any observer. The AEAD
+	// objects built from s1.k/s2.k hold a by-value copy, so encryption and
+	// decryption keep working either way and this failure is silent.
+	hk1, hk2, _ := hkdf(s.cs.Hash, 2, nil, nil, nil, s.ck, nil)
 	copy(s1.k[:], hk1)
 	copy(s2.k[:], hk2)
 	s1.c = s.cs.Cipher(s1.k)
@@ -191,7 +207,11 @@ func (s *SymmetricState) Split() (*CipherState, *CipherState) {
 // The chaining key is zeroed after derivation, just as in Split().
 func (s *SymmetricState) SplitWithASK(labels ...[]byte) (*CipherState, *CipherState, [][]byte) {
 	s1, s2 := &CipherState{cs: s.cs}, &CipherState{cs: s.cs}
-	hk1, hk2, _ := hkdf(s.cs.Hash, 2, s1.k[:0], s2.k[:0], nil, s.ck, nil)
+
+	// Independent HKDF output buffers, for the reason spelled out in Split:
+	// aliasing s1.k/s2.k here would make the zeroing below destroy the live
+	// session keys.
+	hk1, hk2, _ := hkdf(s.cs.Hash, 2, nil, nil, nil, s.ck, nil)
 	copy(s1.k[:], hk1)
 	copy(s2.k[:], hk2)
 	s1.c = s.cs.Cipher(s1.k)

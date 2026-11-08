@@ -74,7 +74,7 @@ func splitHandshake(t *testing.T, suite CipherSuite, seedInc byte) (i1, i2, r1, 
 	if err != nil {
 		t.Fatalf("initiator read msg2: %v", err)
 	}
-	return
+	return i1, i2, r1, r2
 }
 
 var suites = map[string]CipherSuite{
